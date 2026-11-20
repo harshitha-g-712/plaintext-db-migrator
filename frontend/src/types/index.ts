@@ -1,9 +1,11 @@
 // TypeScript types shared across the app
+export type UserRole = 'ADMIN' | 'DEVELOPER';
+
 export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'ADMIN' | 'DEVELOPER';
+  role: UserRole;
   is_active: boolean;
   created_at: string;
 }

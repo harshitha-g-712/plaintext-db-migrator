@@ -7,7 +7,6 @@ import { Button } from '../components/Button';
 import {
   Users,
   Shield,
-  Code2,
   CheckCircle2,
   XCircle,
   Trash2,
