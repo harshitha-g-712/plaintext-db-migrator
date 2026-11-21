@@ -3,8 +3,9 @@ PlainText-DB-Migrator — FastAPI application entry point.
 """
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database.session import engine, Base
@@ -42,6 +43,16 @@ app.add_middleware(
 
 # Routers
 app.include_router(api_router)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}", "type": type(exc).__name__}
+    )
 
 
 @app.get("/health", tags=["Health"])

@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.models import (
     User,
+    UserRole,
     Project,
     Schema,
     Migration,
@@ -84,76 +85,76 @@ async def run_agent_workflow(
     Executes the autonomous multi-agent workflow:
     Requirement Analyzer -> Schema Designer -> SQL Generator -> Validation Agent -> Review Agent -> Migration Agent -> Human Approval Gate.
     """
-    proj_res = await db.execute(select(Project).where(Project.id == req.project_id))
-    project = proj_res.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    if current_user.role == UserRole.ADMIN and project.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin accounts have read-only inspection access to developer projects and cannot execute workflows."
-        )
-    if project.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to modify this project."
-        )
-
-    # Load baseline schema if requested
-    baseline_schema_dict = None
-    if req.baseline_schema_id:
-        base_res = await db.execute(select(Schema).where(Schema.id == req.baseline_schema_id))
-        base_schema = base_res.scalar_one_or_none()
-        if base_schema:
-            baseline_schema_dict = base_schema.schema_definition
-
-    # Create Initial Execution DB Entry
-    execution = AgentWorkflowExecution(
-        project_id=project.id,
-        user_id=current_user.id,
-        status=WorkflowStatus.RUNNING,
-        current_step="INITIALIZING",
-        dialect=req.dialect,
-        requirements_text=req.requirements_text,
-        workflow_state={},
-        steps_history=[],
-        human_approval_required=True,
-    )
-    db.add(execution)
-    await db.commit()
-    await db.refresh(execution)
-
-    # Prepare Initial State
-    initial_state: AgentState = {
-        "workflow_id": str(execution.id),
-        "project_id": str(project.id),
-        "dialect": req.dialect.lower(),
-        "requirements_text": req.requirements_text,
-        "baseline_schema": baseline_schema_dict,
-        "analyzed_requirements": None,
-        "designed_schema": None,
-        "mermaid_er": None,
-        "generated_sql": None,
-        "validation_result": None,
-        "validation_retries": 0,
-        "review_report": None,
-        "risk_level": "SAFE",
-        "diff_report": None,
-        "migration_sql": None,
-        "rollback_sql": None,
-        "status": "RUNNING",
-        "current_step": "START",
-        "steps_history": [],
-        "error_message": None,
-        "human_approval_required": True,
-        "is_approved": None,
-        "approved_by": None,
-        "approval_notes": None,
-        "auto_apply_if_safe": req.auto_apply_if_safe,
-    }
-
     try:
+        proj_res = await db.execute(select(Project).where(Project.id == req.project_id))
+        project = proj_res.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if current_user.role == UserRole.ADMIN and project.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin accounts have read-only inspection access to developer projects and cannot execute workflows."
+            )
+        if project.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to modify this project."
+            )
+
+        # Load baseline schema if requested
+        baseline_schema_dict = None
+        if req.baseline_schema_id:
+            base_res = await db.execute(select(Schema).where(Schema.id == req.baseline_schema_id))
+            base_schema = base_res.scalar_one_or_none()
+            if base_schema:
+                baseline_schema_dict = base_schema.schema_definition
+
+        # Create Initial Execution DB Entry
+        execution = AgentWorkflowExecution(
+            project_id=project.id,
+            user_id=current_user.id,
+            status=WorkflowStatus.RUNNING,
+            current_step="INITIALIZING",
+            dialect=req.dialect,
+            requirements_text=req.requirements_text,
+            workflow_state={},
+            steps_history=[],
+            human_approval_required=True,
+        )
+        db.add(execution)
+        await db.commit()
+        await db.refresh(execution)
+
+        # Prepare Initial State
+        initial_state: AgentState = {
+            "workflow_id": str(execution.id),
+            "project_id": str(project.id),
+            "dialect": req.dialect.lower(),
+            "requirements_text": req.requirements_text,
+            "baseline_schema": baseline_schema_dict,
+            "analyzed_requirements": None,
+            "designed_schema": None,
+            "mermaid_er": None,
+            "generated_sql": None,
+            "validation_result": None,
+            "validation_retries": 0,
+            "review_report": None,
+            "risk_level": "SAFE",
+            "diff_report": None,
+            "migration_sql": None,
+            "rollback_sql": None,
+            "status": "RUNNING",
+            "current_step": "START",
+            "steps_history": [],
+            "error_message": None,
+            "human_approval_required": True,
+            "is_approved": None,
+            "approved_by": None,
+            "approval_notes": None,
+            "auto_apply_if_safe": req.auto_apply_if_safe,
+        }
+
         # Run graph execution
         final_state = agent_workflow_app.invoke(initial_state)
 
@@ -174,11 +175,12 @@ async def run_agent_workflow(
 
         return _map_execution_to_response(execution)
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("Agent workflow orchestration failed")
-        execution.status = WorkflowStatus.FAILED
-        execution.current_step = "EXECUTION_ERROR"
-        await db.commit()
+        import traceback
+        traceback.print_exc()
+        logger.exception("Agent workflow orchestration failed: %s", e)
         raise HTTPException(
             status_code=500,
             detail=f"Workflow orchestration encountered an error: {str(e)}",
