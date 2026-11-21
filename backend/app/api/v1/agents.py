@@ -89,6 +89,17 @@ async def run_agent_workflow(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    if current_user.role == UserRole.ADMIN and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot execute workflows."
+        )
+    if project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
+        )
+
     # Load baseline schema if requested
     baseline_schema_dict = None
     if req.baseline_schema_id:
@@ -188,6 +199,19 @@ async def get_workflow_status(
     if not execution:
         raise HTTPException(status_code=404, detail="Workflow execution not found")
 
+    proj_res = await db.execute(select(Project).where(Project.id == execution.project_id))
+    project = proj_res.scalar_one_or_none()
+    if current_user.role == UserRole.ADMIN and project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot approve developer workflows."
+        )
+    if project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
+        )
+
     return _map_execution_to_response(execution)
 
 
@@ -208,6 +232,19 @@ async def approve_workflow(
     execution = res.scalar_one_or_none()
     if not execution:
         raise HTTPException(status_code=404, detail="Workflow execution not found")
+
+    proj_res = await db.execute(select(Project).where(Project.id == execution.project_id))
+    project = proj_res.scalar_one_or_none()
+    if current_user.role == UserRole.ADMIN and project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot approve developer workflows."
+        )
+    if project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
+        )
 
     if execution.status != WorkflowStatus.AWAITING_HUMAN_APPROVAL:
         raise HTTPException(

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.models.models import User, Project, Requirement
+from app.models.models import User, Project, Requirement, UserRole
 from app.schemas.requirement import (
     RequirementAnalyzeRequest,
     RequirementUpdateRequest,
@@ -32,15 +32,25 @@ async def analyze_project_requirements(
     Analyze plain English requirements into structured entities, attributes, and relationships.
     Saves or updates the analysis record for the specified project.
     """
-    # Verify project ownership
-    res = await db.execute(
-        select(Project).where(Project.id == payload.project_id, Project.user_id == current_user.id)
-    )
+    # Verify project
+    res = await db.execute(select(Project).where(Project.id == payload.project_id))
     project = res.scalar_one_or_none()
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found or you do not have permission to access it."
+            detail="Project not found."
+        )
+
+    # Enforce Admin read-only rule
+    if current_user.role == UserRole.ADMIN and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot modify requirements."
+        )
+    if project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
         )
 
     # Perform AI analysis
@@ -80,9 +90,12 @@ async def get_project_requirement(
     """
     Retrieve the most recent analyzed requirement for a given project.
     """
-    res = await db.execute(
-        select(Project).where(Project.id == project_id, Project.user_id == current_user.id)
-    )
+    if current_user.role == UserRole.ADMIN:
+        res = await db.execute(select(Project).where(Project.id == project_id))
+    else:
+        res = await db.execute(
+            select(Project).where(Project.id == project_id, Project.user_id == current_user.id)
+        )
     if not res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -102,12 +115,15 @@ async def get_requirement_by_id(
     """
     Retrieve requirement details by requirement ID.
     """
-    req_res = await db.execute(
-        select(Requirement).join(Project).where(
-            Requirement.id == requirement_id,
-            Project.user_id == current_user.id
+    if current_user.role == UserRole.ADMIN:
+        req_res = await db.execute(select(Requirement).where(Requirement.id == requirement_id))
+    else:
+        req_res = await db.execute(
+            select(Requirement).join(Project).where(
+                Requirement.id == requirement_id,
+                Project.user_id == current_user.id
+            )
         )
-    )
     req = req_res.scalar_one_or_none()
     if not req:
         raise HTTPException(status_code=404, detail="Requirement not found")
@@ -124,15 +140,23 @@ async def update_requirement(
     """
     Update requirement analysis (review and correct extracted entities/attributes).
     """
-    req_res = await db.execute(
-        select(Requirement).join(Project).where(
-            Requirement.id == requirement_id,
-            Project.user_id == current_user.id
-        )
-    )
+    req_res = await db.execute(select(Requirement).where(Requirement.id == requirement_id))
     req = req_res.scalar_one_or_none()
     if not req:
         raise HTTPException(status_code=404, detail="Requirement not found")
+
+    proj_res = await db.execute(select(Project).where(Project.id == req.project_id))
+    project = proj_res.scalar_one_or_none()
+    if current_user.role == UserRole.ADMIN and project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot modify requirements."
+        )
+    if project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
+        )
 
     if payload.original_text is not None:
         req.original_text = payload.original_text

@@ -446,3 +446,75 @@ Requirements Specification:
     except (httpx.RequestError, KeyError, json.JSONDecodeError, ValidationError) as exc:
         logger.warning("Error invoking OpenRouter API (%s). Falling back to heuristic designer.", exc)
         return _heuristic_schema_designer(requirement, dialect)
+
+
+def design_schema_sync(
+    requirement: AnalyzedRequirement,
+    dialect: str = "postgresql",
+    custom_instructions: Optional[str] = None,
+) -> CompleteSchemaDefinition:
+    """
+    Synchronous schema designer for LangGraph orchestration agents.
+    Uses rule-based normalization engine if API key is not configured/placeholder.
+    Uses synchronous httpx.Client if OpenRouter API is configured.
+    """
+    api_key = settings.OPENROUTER_API_KEY.strip()
+    is_placeholder = (
+        not api_key
+        or "your-openrouter" in api_key.lower()
+        or "sk-or-placeholder" in api_key.lower()
+    )
+
+    if is_placeholder:
+        logger.info("OpenRouter API key is not configured; generating schema via rule-based Schema Designer.")
+        return _heuristic_schema_designer(requirement, dialect)
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://plaintext-db-migrator.local",
+        "X-Title": settings.APP_NAME,
+    }
+
+    user_prompt = f"""Target SQL Dialect: {dialect}
+Requirements Specification:
+{requirement.model_dump_json(indent=2)}
+"""
+    if custom_instructions:
+        user_prompt += f"\nCustom Architectural Instructions: {custom_instructions}"
+
+    payload = {
+        "model": settings.OPENROUTER_MODEL,
+        "messages": [
+            {"role": "system", "content": SCHEMA_DESIGNER_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
+
+    endpoint = f"{settings.OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
+
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            response = client.post(endpoint, headers=headers, json=payload)
+            if response.status_code != 200:
+                logger.warning(
+                    "OpenRouter API returned status %s: %s. Falling back to heuristic designer.",
+                    response.status_code,
+                    response.text,
+                )
+                return _heuristic_schema_designer(requirement, dialect)
+
+            res_json = response.json()
+            raw_content = res_json["choices"][0]["message"]["content"]
+            parsed_dict = _extract_json(raw_content)
+
+            if not parsed_dict.get("mermaid_er"):
+                parsed_schema = CompleteSchemaDefinition.model_validate(parsed_dict)
+                parsed_dict["mermaid_er"] = generate_mermaid_er(parsed_schema.tables, parsed_schema.relationships)
+
+            return CompleteSchemaDefinition.model_validate(parsed_dict)
+    except (httpx.RequestError, KeyError, json.JSONDecodeError, ValidationError) as exc:
+        logger.warning("Error invoking OpenRouter API (%s). Falling back to heuristic designer.", exc)
+        return _heuristic_schema_designer(requirement, dialect)

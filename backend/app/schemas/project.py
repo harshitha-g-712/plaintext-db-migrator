@@ -25,5 +25,7 @@ class ProjectResponse(BaseModel):
     description: Optional[str]
     created_at: datetime
     updated_at: datetime
+    owner_name: Optional[str] = None
+    owner_email: Optional[str] = None
 
     model_config = {"from_attributes": True}

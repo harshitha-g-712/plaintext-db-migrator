@@ -49,9 +49,12 @@ async def compare_schemas(
     evaluates risk levels (SAFE, MEDIUM, DESTRUCTIVE), and warns about data loss.
     """
     # Verify project
-    proj_res = await db.execute(
-        select(Project).where(Project.id == payload.project_id, Project.user_id == current_user.id)
-    )
+    if current_user.role == UserRole.ADMIN:
+        proj_res = await db.execute(select(Project).where(Project.id == payload.project_id))
+    else:
+        proj_res = await db.execute(
+            select(Project).where(Project.id == payload.project_id, Project.user_id == current_user.id)
+        )
     if not proj_res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -88,11 +91,21 @@ async def generate_migration(
     Generate migration and rollback scripts with schema version control.
     Identifies destructive changes and creates a PENDING migration record.
     """
-    proj_res = await db.execute(
-        select(Project).where(Project.id == payload.project_id, Project.user_id == current_user.id)
-    )
-    if not proj_res.scalar_one_or_none():
+    proj_res = await db.execute(select(Project).where(Project.id == payload.project_id))
+    project = proj_res.scalar_one_or_none()
+    if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    if current_user.role == UserRole.ADMIN and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot generate migrations."
+        )
+    if project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
+        )
 
     target_res = await db.execute(select(Schema).where(Schema.id == payload.target_schema_id))
     target_schema_rec = target_res.scalar_one_or_none()
@@ -202,15 +215,22 @@ async def get_migration_by_id(
     """
     Retrieve migration details, SQL scripts, diff report, and execution history by ID.
     """
-    stmt = (
-        select(Migration)
-        .options(selectinload(Migration.history))
-        .join(Project)
-        .where(
-            Migration.id == id,
-            Project.user_id == current_user.id,
+    if current_user.role == UserRole.ADMIN:
+        stmt = (
+            select(Migration)
+            .options(selectinload(Migration.history))
+            .where(Migration.id == id)
         )
-    )
+    else:
+        stmt = (
+            select(Migration)
+            .options(selectinload(Migration.history))
+            .join(Project)
+            .where(
+                Migration.id == id,
+                Project.user_id == current_user.id,
+            )
+        )
     result = await db.execute(stmt)
     migration_record = result.scalar_one_or_none()
     if not migration_record:
@@ -232,16 +252,25 @@ async def execute_migration(
     stmt = (
         select(Migration)
         .options(selectinload(Migration.history))
-        .join(Project)
-        .where(
-            Migration.id == id,
-            Project.user_id == current_user.id,
-        )
+        .where(Migration.id == id)
     )
     result = await db.execute(stmt)
     migration_record = result.scalar_one_or_none()
     if not migration_record:
         raise HTTPException(status_code=404, detail="Migration not found")
+
+    proj_res = await db.execute(select(Project).where(Project.id == migration_record.project_id))
+    project = proj_res.scalar_one_or_none()
+    if current_user.role == UserRole.ADMIN and project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot execute migrations."
+        )
+    if project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
+        )
 
     if migration_record.risk_level == MigrationRiskLevel.DESTRUCTIVE and not payload.force_destructive:
         raise HTTPException(
@@ -283,16 +312,25 @@ async def rollback_migration(
     stmt = (
         select(Migration)
         .options(selectinload(Migration.history))
-        .join(Project)
-        .where(
-            Migration.id == id,
-            Project.user_id == current_user.id,
-        )
+        .where(Migration.id == id)
     )
     result = await db.execute(stmt)
     migration_record = result.scalar_one_or_none()
     if not migration_record:
         raise HTTPException(status_code=404, detail="Migration not found")
+
+    proj_res = await db.execute(select(Project).where(Project.id == migration_record.project_id))
+    project = proj_res.scalar_one_or_none()
+    if current_user.role == UserRole.ADMIN and project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot rollback migrations."
+        )
+    if project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
+        )
 
     # Record rollback in history
     hist_count = len(migration_record.history)
@@ -304,6 +342,12 @@ async def rollback_migration(
         execution_timestamp=datetime.now(timezone.utc),
     )
     db.add(history_log)
+
+    migration_record.status = MigrationStatus.ROLLED_BACK
+    db.add(migration_record)
+    await db.commit()
+    await db.refresh(migration_record)
+    return migration_record
 
     migration_record.status = MigrationStatus.ROLLED_BACK
     db.add(migration_record)

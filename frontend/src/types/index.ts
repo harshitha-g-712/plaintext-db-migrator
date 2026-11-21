@@ -17,6 +17,8 @@ export interface Project {
   description: string | null;
   created_at: string;
   updated_at: string;
+  owner_name?: string | null;
+  owner_email?: string | null;
 }
 
 export interface AuthState {

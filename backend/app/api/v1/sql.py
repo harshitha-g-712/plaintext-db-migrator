@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.models.models import User, Project, Schema
+from app.models.models import User, Project, Schema, UserRole
 from app.schemas.schema_design import CompleteSchemaDefinition
 from app.schemas.sql_generation import (
     SQLGenerateRequest,
@@ -37,12 +37,15 @@ async def generate_sql(
     Validates the generated SQL using SQLGlot before returning.
     """
     # Fetch schema and verify ownership
-    schema_res = await db.execute(
-        select(Schema).join(Project).where(
-            Schema.id == payload.schema_id,
-            Project.user_id == current_user.id,
+    if current_user.role == UserRole.ADMIN:
+        schema_res = await db.execute(select(Schema).where(Schema.id == payload.schema_id))
+    else:
+        schema_res = await db.execute(
+            select(Schema).join(Project).where(
+                Schema.id == payload.schema_id,
+                Project.user_id == current_user.id,
+            )
         )
-    )
     schema_record = schema_res.scalar_one_or_none()
     if not schema_record:
         raise HTTPException(status_code=404, detail="Schema not found or access denied.")

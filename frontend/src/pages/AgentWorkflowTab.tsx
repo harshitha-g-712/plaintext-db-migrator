@@ -30,6 +30,7 @@ interface AgentWorkflowTabProps {
   projectId: string;
   defaultRequirementText?: string;
   onNavigateToSchema?: () => void;
+  isReadOnly?: boolean;
 }
 
 const AGENT_NODES = [
@@ -46,6 +47,7 @@ export const AgentWorkflowTab: React.FC<AgentWorkflowTabProps> = ({
   projectId,
   defaultRequirementText = '',
   onNavigateToSchema,
+  isReadOnly = false,
 }) => {
   const [schemas, setSchemas] = useState<SchemaRecord[]>([]);
   const [requirementsText, setRequirementsText] = useState(defaultRequirementText);
@@ -120,6 +122,8 @@ export const AgentWorkflowTab: React.FC<AgentWorkflowTabProps> = ({
         setSuccessMsg('Multi-agent pipeline succeeded! Execution paused safely at the Human Approval Gate.');
       } else if (response.status === 'COMPLETED') {
         setSuccessMsg('Multi-agent pipeline completed and automatically executed safe migration.');
+      } else if (response.status === 'FAILED') {
+        setError(response.workflow_state?.error_message || 'Multi-agent orchestration failed at an agent step.');
       }
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Multi-agent orchestration failed.');
@@ -195,10 +199,13 @@ export const AgentWorkflowTab: React.FC<AgentWorkflowTabProps> = ({
               <Button
                 variant="primary"
                 onClick={handleRunWorkflow}
-                disabled={running}
+                disabled={running || isReadOnly}
+                title={isReadOnly ? 'Admins have read-only inspection access and cannot run workflows on developer projects.' : undefined}
                 className="bg-indigo-600 hover:bg-indigo-500 shadow-md font-semibold px-5 w-full sm:w-auto"
               >
-                {running ? (
+                {isReadOnly ? (
+                  'Read-Only Mode'
+                ) : running ? (
                   <>
                     <div className="animate-spin h-4 w-4 rounded-full border-2 border-white border-t-transparent mr-2" />
                     Orchestrating Agents...
@@ -462,28 +469,36 @@ export const AgentWorkflowTab: React.FC<AgentWorkflowTabProps> = ({
               </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <Button
-                  variant="secondary"
-                  onClick={() => handleApprovalDecision(false)}
-                  disabled={approving}
-                  className="border-rose-300 text-rose-700 hover:bg-rose-50 text-xs px-4 py-2"
-                >
-                  <X className="h-4 w-4 mr-1 text-rose-600" /> Reject Migration
-                </Button>
+                {isReadOnly ? (
+                  <span className="text-xs bg-slate-100 text-slate-500 font-medium px-3 py-1.5 rounded-lg border border-slate-200">
+                    Read-Only (Only the developer who owns this project can approve migrations)
+                  </span>
+                ) : (
+                  <>
+                    <Button
+                      variant="secondary"
+                      onClick={() => handleApprovalDecision(false)}
+                      disabled={approving}
+                      className="border-rose-300 text-rose-700 hover:bg-rose-50 text-xs px-4 py-2"
+                    >
+                      <X className="h-4 w-4 mr-1 text-rose-600" /> Reject Migration
+                    </Button>
 
-                <Button
-                  variant="primary"
-                  onClick={() => handleApprovalDecision(true)}
-                  disabled={approving}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-5 py-2 shadow"
-                >
-                  {approving ? (
-                    <div className="animate-spin h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent mr-1.5" />
-                  ) : (
-                    <Check className="h-4 w-4 mr-1" />
-                  )}
-                  Approve & Execute Migration
-                </Button>
+                    <Button
+                      variant="primary"
+                      onClick={() => handleApprovalDecision(true)}
+                      disabled={approving}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-5 py-2 shadow"
+                    >
+                      {approving ? (
+                        <div className="animate-spin h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent mr-1.5" />
+                      ) : (
+                        <Check className="h-4 w-4 mr-1" />
+                      )}
+                      Approve & Execute Migration
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </div>

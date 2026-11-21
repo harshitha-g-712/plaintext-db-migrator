@@ -23,11 +23,13 @@ import {
 interface MigrationTabProps {
   projectId: string;
   onNavigateToSchema: () => void;
+  isReadOnly?: boolean;
 }
 
 export const MigrationTab: React.FC<MigrationTabProps> = ({
   projectId,
   onNavigateToSchema,
+  isReadOnly = false,
 }) => {
   const [schemas, setSchemas] = useState<SchemaRecord[]>([]);
   const [activeSchema, setActiveSchema] = useState<SchemaRecord | null>(null);
@@ -229,11 +231,12 @@ export const MigrationTab: React.FC<MigrationTabProps> = ({
               type="button"
               onClick={handleGenerateMigration}
               isLoading={comparing}
-              disabled={comparing}
+              disabled={comparing || isReadOnly}
               className="gap-2"
+              title={isReadOnly ? 'Admins have read-only inspection access and cannot generate migrations.' : undefined}
             >
               <GitBranch className="h-4 w-4" />
-              Compare & Generate Migration
+              {isReadOnly ? 'Read-Only Mode' : 'Compare & Generate Migration'}
             </Button>
           </div>
         </div>
@@ -377,7 +380,11 @@ export const MigrationTab: React.FC<MigrationTabProps> = ({
 
                 {/* Execution Controls */}
                 <div className="flex items-center gap-3">
-                  {activeMigration.status === 'EXECUTED' ? (
+                  {isReadOnly ? (
+                    <span className="text-xs bg-slate-100 text-slate-500 font-medium px-3 py-1.5 rounded-lg border border-slate-200">
+                      Read-Only (Admins cannot execute or rollback developer migrations)
+                    </span>
+                  ) : activeMigration.status === 'EXECUTED' ? (
                     <Button
                       size="sm"
                       variant="secondary"

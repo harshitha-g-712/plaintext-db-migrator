@@ -418,3 +418,62 @@ async def analyze_requirements(requirements_text: str) -> AnalyzedRequirement:
     except (httpx.RequestError, KeyError, json.JSONDecodeError, ValidationError) as exc:
         logger.warning("Error invoking OpenRouter API (%s). Falling back to heuristic parser.", exc)
         return _heuristic_analyzer(requirements_text)
+
+
+def analyze_requirements_sync(requirements_text: str) -> AnalyzedRequirement:
+    """
+    Synchronous analysis entry point for LangGraph orchestration agents.
+    Uses local heuristic parser if API key is not configured/placeholder.
+    Uses synchronous httpx.Client if OpenRouter API is configured.
+    """
+    api_key = settings.OPENROUTER_API_KEY.strip()
+    is_placeholder = (
+        not api_key
+        or "your-openrouter" in api_key.lower()
+        or "sk-or-placeholder" in api_key.lower()
+    )
+
+    if is_placeholder:
+        logger.info("OpenRouter API key is not configured; using high-fidelity local heuristic parser.")
+        return _heuristic_analyzer(requirements_text)
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://plaintext-db-migrator.local",
+        "X-Title": settings.APP_NAME,
+    }
+
+    payload = {
+        "model": settings.OPENROUTER_MODEL,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": f"Analyze the following database requirements and produce the structured JSON output:\n\n{requirements_text}",
+            },
+        ],
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
+
+    endpoint = f"{settings.OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
+
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            response = client.post(endpoint, headers=headers, json=payload)
+            if response.status_code != 200:
+                logger.warning(
+                    "OpenRouter API returned status %s: %s. Falling back to heuristic analyzer.",
+                    response.status_code,
+                    response.text,
+                )
+                return _heuristic_analyzer(requirements_text)
+
+            res_json = response.json()
+            raw_content = res_json["choices"][0]["message"]["content"]
+            parsed_dict = _extract_json(raw_content)
+            return AnalyzedRequirement.model_validate(parsed_dict)
+    except (httpx.RequestError, KeyError, json.JSONDecodeError, ValidationError) as exc:
+        logger.warning("Error invoking OpenRouter API (%s). Falling back to heuristic parser.", exc)
+        return _heuristic_analyzer(requirements_text)

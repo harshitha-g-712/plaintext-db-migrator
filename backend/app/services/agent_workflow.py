@@ -15,8 +15,8 @@ from langgraph.graph import StateGraph, END
 from app.schemas.requirement import AnalyzedRequirement
 from app.schemas.schema_design import CompleteSchemaDefinition
 from app.schemas.migration import SchemaDiffReport
-from app.services.ai_analyzer import analyze_requirements, _heuristic_analyzer
-from app.services.schema_designer import design_schema, _heuristic_schema_designer
+from app.services.ai_analyzer import analyze_requirements_sync, _heuristic_analyzer
+from app.services.schema_designer import design_schema_sync, _heuristic_schema_designer
 from app.services.sql_agent import SQLGeneratorAgent, SQLValidationAgent
 from app.services.migration_engine import SchemaComparisonEngine, MigrationGeneratorAgent
 
@@ -47,24 +47,6 @@ def _normalize_schema_dict(d: Optional[Dict[str, Any]]) -> Optional[Dict[str, An
             tables.append(t_dict)
         cleaned["tables"] = tables
     return cleaned
-
-
-def _run_coroutine_sync(coro, fallback_fn, *fallback_args):
-    """Safely executes an async coroutine synchronously, falling back to a sync function if execution fails."""
-    try:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                return executor.submit(asyncio.run, coro).result(timeout=45.0)
-        else:
-            return asyncio.run(coro)
-    except Exception as exc:
-        logger.warning("Async execution encountered issue (%s). Using fallback engine.", exc)
-        return fallback_fn(*fallback_args)
 
 
 # ── LangGraph Agent Shared State ──────────────────────────────────────────────
@@ -124,11 +106,7 @@ def requirement_analyzer_node(state: AgentState) -> AgentState:
     state["current_step"] = "REQUIREMENT_ANALYSIS"
     try:
         raw_text = state["requirements_text"]
-        analyzed_data: AnalyzedRequirement = _run_coroutine_sync(
-            analyze_requirements(raw_text),
-            _heuristic_analyzer,
-            raw_text,
-        )
+        analyzed_data: AnalyzedRequirement = analyze_requirements_sync(raw_text)
         state["analyzed_requirements"] = analyzed_data.model_dump()
         entity_count = len(analyzed_data.entities)
         rel_count = len(analyzed_data.relationships)
@@ -168,12 +146,7 @@ def schema_designer_node(state: AgentState) -> AgentState:
         analyzed_obj = AnalyzedRequirement.model_validate(req_data)
         dialect = state.get("dialect", "postgresql").lower()
 
-        schema_def: CompleteSchemaDefinition = _run_coroutine_sync(
-            design_schema(analyzed_obj, dialect=dialect),
-            _heuristic_schema_designer,
-            analyzed_obj,
-            dialect,
-        )
+        schema_def: CompleteSchemaDefinition = design_schema_sync(analyzed_obj, dialect=dialect)
 
         state["designed_schema"] = schema_def.model_dump()
         state["mermaid_er"] = schema_def.mermaid_er
@@ -487,6 +460,24 @@ def human_approval_gate_node(state: AgentState) -> AgentState:
 
 # ── Conditional Routing Functions ─────────────────────────────────────────────
 
+def route_after_requirement(state: AgentState) -> str:
+    if state.get("status") == "FAILED":
+        return END
+    return "schema_designer_agent"
+
+
+def route_after_schema(state: AgentState) -> str:
+    if state.get("status") == "FAILED":
+        return END
+    return "sql_generator_agent"
+
+
+def route_after_sql(state: AgentState) -> str:
+    if state.get("status") == "FAILED":
+        return END
+    return "validation_agent"
+
+
 def route_after_validation(state: AgentState) -> str:
     """Routes back to schema designer if validation failed and retries remain, else proceeds to review."""
     if state.get("status") == "FAILED":
@@ -531,10 +522,33 @@ def build_agent_workflow_graph():
     # Set Entry Point
     workflow.set_entry_point("requirement_analyzer_agent")
 
-    # Connect Edges
-    workflow.add_edge("requirement_analyzer_agent", "schema_designer_agent")
-    workflow.add_edge("schema_designer_agent", "sql_generator_agent")
-    workflow.add_edge("sql_generator_agent", "validation_agent")
+    # Connect Edges with Conditional Failure Safeguards
+    workflow.add_conditional_edges(
+        "requirement_analyzer_agent",
+        route_after_requirement,
+        {
+            "schema_designer_agent": "schema_designer_agent",
+            END: END,
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "schema_designer_agent",
+        route_after_schema,
+        {
+            "sql_generator_agent": "sql_generator_agent",
+            END: END,
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "sql_generator_agent",
+        route_after_sql,
+        {
+            "validation_agent": "validation_agent",
+            END: END,
+        },
+    )
 
     # Conditional Routing from Validation Agent
     workflow.add_conditional_edges(

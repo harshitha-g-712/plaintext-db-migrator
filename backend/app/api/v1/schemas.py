@@ -33,15 +33,25 @@ async def generate_database_schema(
     Generate a complete, normalized relational database schema from analyzed requirements.
     Performs normalization audit (1NF-3NF), generates Mermaid ER code, and saves versioned schema.
     """
-    # Verify project ownership
-    res = await db.execute(
-        select(Project).where(Project.id == payload.project_id, Project.user_id == current_user.id)
-    )
+    # Verify project
+    res = await db.execute(select(Project).where(Project.id == payload.project_id))
     project = res.scalar_one_or_none()
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found or you do not have permission to access it."
+            detail="Project not found."
+        )
+
+    # Enforce Admin read-only rule
+    if current_user.role == UserRole.ADMIN and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot generate schemas."
+        )
+    if project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
         )
 
     # Fetch latest requirement for this project
@@ -119,9 +129,12 @@ async def get_schema_by_id(
     """
     Retrieve a schema by its specific schema ID.
     """
-    schema_res = await db.execute(
-        select(Schema).join(Project).where(Schema.id == id, Project.user_id == current_user.id)
-    )
+    if current_user.role == UserRole.ADMIN:
+        schema_res = await db.execute(select(Schema).where(Schema.id == id))
+    else:
+        schema_res = await db.execute(
+            select(Schema).join(Project).where(Schema.id == id, Project.user_id == current_user.id)
+        )
     schema_record = schema_res.scalar_one_or_none()
     if not schema_record:
         raise HTTPException(status_code=404, detail="Schema not found")
@@ -138,12 +151,23 @@ async def update_schema_by_id(
     """
     Update or modify an existing schema definition and its ER diagram.
     """
-    schema_res = await db.execute(
-        select(Schema).join(Project).where(Schema.id == id, Project.user_id == current_user.id)
-    )
+    schema_res = await db.execute(select(Schema).where(Schema.id == id))
     schema_record = schema_res.scalar_one_or_none()
     if not schema_record:
         raise HTTPException(status_code=404, detail="Schema not found")
+
+    proj_res = await db.execute(select(Project).where(Project.id == schema_record.project_id))
+    project = proj_res.scalar_one_or_none()
+    if current_user.role == UserRole.ADMIN and project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts have read-only inspection access to developer projects and cannot modify schemas."
+        )
+    if project and project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project."
+        )
 
     if payload.schema_name is not None:
         schema_record.schema_name = payload.schema_name

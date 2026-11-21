@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { projectService } from '../services/project.service';
 import { requirementService } from '../services/requirement.service';
 import type { Project, Requirement, EntityDefinition, AttributeDefinition } from '../types';
@@ -27,6 +28,7 @@ import {
   GitBranch,
   FileCode2,
   Bot,
+  Shield,
 } from 'lucide-react';
 
 const PRESETS = [
@@ -76,6 +78,7 @@ const SQL_TYPES = [
 
 export const RequirementAnalysisPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
+  const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'requirements' | 'schema' | 'sql' | 'migrations' | 'agents'>('requirements');
   const [project, setProject] = useState<Project | null>(null);
   const [requirement, setRequirement] = useState<Requirement | null>(null);
@@ -89,6 +92,8 @@ export const RequirementAnalysisPage: React.FC = () => {
 
   // Editable local state for entities
   const [editableEntities, setEditableEntities] = useState<EntityDefinition[]>([]);
+
+  const isReadOnly = currentUser?.role === 'ADMIN' && !!project && project.user_id !== currentUser.id;
 
   useEffect(() => {
     if (!projectId) return;
@@ -274,6 +279,26 @@ export const RequirementAnalysisPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Admin Read-Only Notice */}
+      {isReadOnly && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm shadow-xs">
+          <div className="flex items-start sm:items-center gap-3">
+            <Shield className="h-5 w-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+            <div>
+              <span className="font-bold">Admin Inspection Mode (Read-Only)</span>:
+              {' '}This project is owned by Developer{' '}
+              <span className="font-semibold text-amber-950 underline decoration-amber-400">
+                {project?.owner_name || project?.owner_email || 'Developer'}
+              </span>
+              . You have full visibility across requirements, schemas, ER diagrams, SQL, and migrations, but modifications are restricted to the project owner.
+            </div>
+          </div>
+          <span className="bg-amber-200/90 text-amber-900 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider self-start sm:self-auto shrink-0 border border-amber-300">
+            Read-Only
+          </span>
+        </div>
+      )}
+
       {/* Workspace Tabs Navigation */}
       <div className="border-b border-slate-200">
         <nav className="flex space-x-6 text-sm font-medium">
@@ -360,6 +385,7 @@ export const RequirementAnalysisPage: React.FC = () => {
           projectId={projectId!}
           defaultRequirementText={inputText}
           onNavigateToSchema={() => setActiveTab('schema')}
+          isReadOnly={isReadOnly}
         />
       )}
 
@@ -368,6 +394,7 @@ export const RequirementAnalysisPage: React.FC = () => {
         <MigrationTab
           projectId={projectId!}
           onNavigateToSchema={() => setActiveTab('schema')}
+          isReadOnly={isReadOnly}
         />
       )}
 
@@ -376,6 +403,7 @@ export const RequirementAnalysisPage: React.FC = () => {
         <SQLGeneratorTab
           projectId={projectId!}
           onNavigateToSchema={() => setActiveTab('schema')}
+          isReadOnly={isReadOnly}
         />
       )}
 
@@ -385,6 +413,7 @@ export const RequirementAnalysisPage: React.FC = () => {
           projectId={projectId!}
           hasRequirement={!!requirement}
           onNavigateToRequirements={() => setActiveTab('requirements')}
+          isReadOnly={isReadOnly}
         />
       )}
 
@@ -433,8 +462,11 @@ export const RequirementAnalysisPage: React.FC = () => {
                 <button
                   key={preset.title}
                   type="button"
+                  disabled={isReadOnly}
                   onClick={() => setInputText(preset.text)}
-                  className="text-xs px-2.5 py-1 rounded-md bg-white border border-slate-200 hover:border-indigo-400 hover:text-indigo-600 text-slate-700 transition-colors shadow-2xs"
+                  className={`text-xs px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-700 transition-colors shadow-2xs ${
+                    isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:border-indigo-400 hover:text-indigo-600'
+                  }`}
                 >
                   {preset.title}
                 </button>
@@ -446,9 +478,12 @@ export const RequirementAnalysisPage: React.FC = () => {
                 <textarea
                   rows={6}
                   value={inputText}
+                  readOnly={isReadOnly}
                   onChange={(e) => setInputText(e.target.value)}
                   placeholder="e.g. Create a college management database. A student has student ID, name, email and phone number. A department has department ID and department name. Each student belongs to one department..."
-                  className="block w-full rounded-xl border border-slate-300 bg-white p-3.5 text-sm font-sans shadow-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className={`block w-full rounded-xl border border-slate-300 p-3.5 text-sm font-sans shadow-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                    isReadOnly ? 'bg-slate-50 text-slate-700 cursor-default' : 'bg-white'
+                  }`}
                   required
                 />
                 <div className="flex items-center justify-between mt-1 text-xs text-slate-400 px-1">
@@ -462,11 +497,12 @@ export const RequirementAnalysisPage: React.FC = () => {
                   type="submit"
                   size="md"
                   isLoading={analyzing}
-                  disabled={analyzing || !inputText.trim()}
+                  disabled={analyzing || isReadOnly || !inputText.trim()}
                   className="gap-2"
+                  title={isReadOnly ? 'Admins have read-only inspection access and cannot modify developer requirements.' : undefined}
                 >
                   <Sparkles className="h-4 w-4" />
-                  {analyzing ? 'Analyzing with AI...' : 'Analyze Requirements'}
+                  {isReadOnly ? 'Read-Only Mode' : analyzing ? 'Analyzing with AI...' : 'Analyze Requirements'}
                 </Button>
 
                 {requirement && (
@@ -510,25 +546,27 @@ export const RequirementAnalysisPage: React.FC = () => {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {isEditing ? (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={handleSaveEdits}
-                      isLoading={saving}
-                      className="gap-1.5"
-                    >
-                      <Save className="h-3.5 w-3.5" /> Save Corrections
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setIsEditing(true)}
-                      className="gap-1.5"
-                    >
-                      Edit Extracted Schema
-                    </Button>
+                  {!isReadOnly && (
+                    isEditing ? (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={handleSaveEdits}
+                        isLoading={saving}
+                        className="gap-1.5"
+                      >
+                        <Save className="h-3.5 w-3.5" /> Save Corrections
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setIsEditing(true)}
+                        className="gap-1.5"
+                      >
+                        Edit Extracted Schema
+                      </Button>
+                    )
                   )}
                   <Button
                     size="sm"

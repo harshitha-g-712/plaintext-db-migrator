@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { projectService } from '../services/project.service';
 import type { Project } from '../types';
 import { Card } from '../components/Card';
@@ -7,6 +8,7 @@ import { Button } from '../components/Button';
 import { FolderOpen, Plus, Calendar, Trash2, ArrowRight, Sparkles } from 'lucide-react';
 
 export const ProjectsPage: React.FC = () => {
+  const { user: currentUser } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -92,17 +94,32 @@ export const ProjectsPage: React.FC = () => {
               <Card className="h-full hover:shadow-md hover:border-indigo-200 transition-all flex flex-col justify-between">
                 <div>
                   <div className="flex items-start justify-between mb-3">
-                    <div className="p-2.5 bg-indigo-50 group-hover:bg-indigo-100 rounded-lg transition-colors">
-                      <FolderOpen className="h-5 w-5 text-indigo-600" />
+                    <div className="flex items-center gap-2">
+                      <div className="p-2.5 bg-indigo-50 group-hover:bg-indigo-100 rounded-lg transition-colors">
+                        <FolderOpen className="h-5 w-5 text-indigo-600" />
+                      </div>
+                      {currentUser?.role === 'ADMIN' && (
+                        project.user_id === currentUser.id ? (
+                          <span className="text-2xs bg-purple-100 text-purple-700 font-bold px-2 py-0.5 rounded-full border border-purple-200">
+                            Your Project
+                          </span>
+                        ) : (
+                          <span className="text-2xs bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full border border-blue-200">
+                            By {project.owner_name || 'Developer'} (Read-Only)
+                          </span>
+                        )
+                      )}
                     </div>
-                    <button
-                      onClick={(e) => handleDelete(project.id, e)}
-                      disabled={deletingId === project.id}
-                      className="text-slate-300 hover:text-red-500 transition-colors p-1.5 rounded"
-                      title="Delete project"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {!(currentUser?.role === 'ADMIN' && project.user_id !== currentUser.id) && (
+                      <button
+                        onClick={(e) => handleDelete(project.id, e)}
+                        disabled={deletingId === project.id}
+                        className="text-slate-300 hover:text-red-500 transition-colors p-1.5 rounded"
+                        title="Delete project"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                   <h3 className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors mb-1">
                     {project.project_name}

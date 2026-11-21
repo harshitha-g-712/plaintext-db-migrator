@@ -25,6 +25,7 @@ interface SchemaDesignerTabProps {
   projectId: string;
   hasRequirement: boolean;
   onNavigateToRequirements: () => void;
+  isReadOnly?: boolean;
 }
 
 const SQL_TYPES = [
@@ -46,6 +47,7 @@ export const SchemaDesignerTab: React.FC<SchemaDesignerTabProps> = ({
   projectId,
   hasRequirement,
   onNavigateToRequirements,
+  isReadOnly = false,
 }) => {
   const [schemaRecord, setSchemaRecord] = useState<SchemaRecord | null>(null);
   const [dialect, setDialect] = useState<string>('postgresql');
@@ -272,11 +274,12 @@ export const SchemaDesignerTab: React.FC<SchemaDesignerTabProps> = ({
               type="button"
               onClick={handleGenerate}
               isLoading={generating}
-              disabled={generating}
+              disabled={generating || isReadOnly}
               className="gap-2"
+              title={isReadOnly ? 'Admin has read-only access to developer projects' : undefined}
             >
               <Sparkles className="h-4 w-4" />
-              {schemaRecord ? 'Regenerate Schema' : 'Generate Schema'}
+              {isReadOnly ? 'Read-Only Mode' : schemaRecord ? 'Regenerate Schema' : 'Generate Schema'}
             </Button>
           </div>
         </div>
@@ -409,47 +412,51 @@ export const SchemaDesignerTab: React.FC<SchemaDesignerTabProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
-                {isEditing ? (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={handleSaveEdits}
-                      isLoading={saving}
-                      className="gap-1.5"
-                    >
-                      <Save className="h-3.5 w-3.5" /> Save Schema Changes
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        setEditableTables(schemaRecord.schema_definition.tables || []);
-                        setIsEditing(false);
-                      }}
-                      className="gap-1.5"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" /> Cancel
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setIsEditing(true)}
-                    className="gap-1.5 text-xs"
-                  >
-                    Edit Schema Definition
-                  </Button>
+                {!isReadOnly && (
+                  isEditing ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={handleSaveEdits}
+                        isLoading={saving}
+                        className="gap-1.5"
+                      >
+                        <Save className="h-3.5 w-3.5" /> Save Schema Changes
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setEditableTables(schemaRecord.schema_definition.tables || []);
+                          setIsEditing(false);
+                        }}
+                        className="gap-1.5"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" /> Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setIsEditing(true)}
+                        className="gap-1.5 text-xs"
+                      >
+                        Edit Schema Definition
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={handleAddTable}
+                        className="gap-1.5 text-xs"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add Table
+                      </Button>
+                    </>
+                  )
                 )}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={handleAddTable}
-                  className="gap-1.5 text-xs"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add Table
-                </Button>
               </div>
             </div>
 
