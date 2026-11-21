@@ -67,6 +67,179 @@ Transform plain English requirements into validated database schemas, interactiv
 
 ---
 
+## 📊 Entity Relationship (ER) Diagrams
+
+### 1. Platform System Data Model (Core Database)
+The following ER diagram represents the internal database schema powering the PlainText-to-DB Migrator:
+
+```mermaid
+erDiagram
+    users ||--o{ projects : owns
+    users ||--o{ agent_workflow_executions : triggers
+    projects ||--o{ database_connections : configures
+    projects ||--o{ requirements : analyzes
+    projects ||--o{ schemas : designs
+    projects ||--o{ migrations : executes
+    projects ||--o{ agent_workflow_executions : orchestrates
+    migrations ||--o{ migration_history : tracks
+    schemas ||--o{ migrations : "source / target"
+
+    users {
+        guid id PK
+        string name
+        string email UK
+        string password_hash
+        enum role "ADMIN | DEVELOPER"
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    projects {
+        guid id PK
+        guid user_id FK
+        string project_name
+        text description
+        datetime created_at
+        datetime updated_at
+    }
+
+    database_connections {
+        guid id PK
+        guid project_id FK
+        string connection_name
+        enum database_type "postgresql | mysql"
+        text connection_configuration
+        datetime created_at
+    }
+
+    requirements {
+        guid id PK
+        guid project_id FK
+        text original_text
+        json analyzed_data
+        datetime created_at
+        datetime updated_at
+    }
+
+    schemas {
+        guid id PK
+        guid project_id FK
+        string schema_name
+        json schema_definition
+        string database_dialect
+        int version
+        text mermaid_er
+        datetime created_at
+        datetime updated_at
+    }
+
+    migrations {
+        guid id PK
+        guid project_id FK
+        guid source_schema_id FK
+        guid target_schema_id FK
+        string database_dialect
+        text migration_sql
+        text rollback_sql
+        enum status "PENDING | APPROVED | EXECUTED | REJECTED | ROLLED_BACK"
+        enum risk_level "SAFE | LOW | MEDIUM | HIGH | DESTRUCTIVE"
+        json detected_diff
+        datetime created_at
+        datetime executed_at
+    }
+
+    migration_history {
+        guid id PK
+        guid migration_id FK
+        int version
+        string execution_status
+        string executed_by
+        datetime execution_timestamp
+        text error_message
+    }
+
+    agent_workflow_executions {
+        guid id PK
+        guid project_id FK
+        guid user_id FK
+        enum status "PENDING | RUNNING | AWAITING_HUMAN_APPROVAL | APPROVED | REJECTED | COMPLETED | FAILED"
+        string current_step
+        string dialect
+        text requirements_text
+        json workflow_state
+        json steps_history
+        boolean human_approval_required
+        boolean is_approved
+        string approved_by
+        text approval_notes
+        datetime created_at
+        datetime updated_at
+        datetime completed_at
+    }
+```
+
+### 2. Example AI-Generated Application ER Diagram (E-Commerce)
+When a user provides natural language requirements, the **Schema Designer Agent** synthesizes a normalized 3NF ER diagram rendered interactively in the web application:
+
+```mermaid
+erDiagram
+    CUSTOMERS ||--o{ ORDERS : places
+    CATEGORIES ||--o{ PRODUCTS : categorizes
+    PRODUCTS ||--o{ ORDER_ITEMS : contains
+    ORDERS ||--o{ ORDER_ITEMS : includes
+    ORDERS ||--|| PAYMENTS : settled_by
+
+    CUSTOMERS {
+        uuid id PK
+        string full_name
+        string email UK
+        string phone
+        timestamp created_at
+    }
+
+    CATEGORIES {
+        uuid id PK
+        string name UK
+        text description
+    }
+
+    PRODUCTS {
+        uuid id PK
+        uuid category_id FK
+        string product_name
+        decimal price
+        int stock_quantity
+    }
+
+    ORDERS {
+        uuid id PK
+        uuid customer_id FK
+        string status
+        decimal total_amount
+        timestamp order_date
+    }
+
+    ORDER_ITEMS {
+        uuid id PK
+        uuid order_id FK
+        uuid product_id FK
+        int quantity
+        decimal unit_price
+    }
+
+    PAYMENTS {
+        uuid id PK
+        uuid order_id FK
+        string payment_method
+        string transaction_reference UK
+        decimal amount
+        string payment_status
+    }
+```
+
+---
+
 ## 🚀 Quick Start
 
 For full installation and configuration steps, see [SETUP.md](./SETUP.md). For detailed architectural specs, see [ARCHITECTURE.md](./ARCHITECTURE.md).
